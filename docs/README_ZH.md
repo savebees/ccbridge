@@ -41,13 +41,19 @@
 
 ### 安装
 
+**方式一（最简单）**：让 Claude Code 帮你安装：
+
+> 从 https://github.com/savebees/ccbridge 安装 CCBridge
+
+**方式二**：手动安装：
+
 ```bash
 git clone https://github.com/savebees/ccbridge.git
 cd ccbridge
 ./install.sh
 ```
 
-安装完成后，`ccbridge` 命令全局可用，在任意终端直接运行即可，无需再回到本仓库目录。
+安装完成后，`ccbridge` 命令全局可用，在任意终端输入 `ccbridge` 即可使用，无需再回到本仓库目录。
 
 ### 连接
 

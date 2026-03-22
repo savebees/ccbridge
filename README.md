@@ -41,13 +41,19 @@ No agents, no daemons, no server-side dependencies. Just SSH.
 
 ### Install
 
+**Option 1 (easiest)**: Tell Claude Code to install it for you:
+
+> Install CCBridge from https://github.com/savebees/ccbridge
+
+**Option 2**: Manual install:
+
 ```bash
 git clone https://github.com/savebees/ccbridge.git
 cd ccbridge
 ./install.sh
 ```
 
-After installation, the `ccbridge` command is available globally. You can run it from any terminal, no need to return to this repository.
+After installation, the `ccbridge` command is available globally. You can run it from any terminal, no need to return to this repository. Just type `ccbridge` in the terminal to get started.
 
 ### Connect
 
