@@ -132,8 +132,6 @@ ccbridge/
 
 ## Acknowledgments
 
-[osxfuse](https://github.com/osxfuse/osxfuse) for macFUSE, the macOS FUSE implementation.
-
-[libfuse](https://github.com/libfuse/sshfs) for SSHFS, the SSH filesystem client.
-
+[osxfuse](https://github.com/osxfuse/osxfuse) for macFUSE, the macOS FUSE implementation.<br>
+[libfuse](https://github.com/libfuse/sshfs) for SSHFS, the SSH filesystem client.<br>
 [sshpass](https://sourceforge.net/projects/sshpass/) for non-interactive SSH password authentication.
