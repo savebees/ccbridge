@@ -4,7 +4,7 @@
 
 ### Claude Code Remote Development Bridge
 
-One command to connect your local Claude Code to any remote Linux server.<br>Zero server-side installation. Pure SSH + SSHFS.
+One command to connect your local Claude Code to any remote Linux server.<br>Browse and edit remote files as if they were local. Zero server-side installation.
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/savebees/ccbridge/releases) [![Platform](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://github.com/savebees/ccbridge) [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Shell](https://img.shields.io/badge/built%20with-Bash-89e051.svg)](https://github.com/savebees/ccbridge)
 

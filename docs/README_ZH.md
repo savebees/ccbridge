@@ -4,7 +4,7 @@
 
 ### Claude Code 远程开发桥接器
 
-一条命令，将本地 Claude Code 连接到任意远程 Linux 服务器。<br>远程零安装，纯 SSH + SSHFS 方案。
+一条命令，将本地 Claude Code 连接到任意远程 Linux 服务器。<br>像操作本地文件一样浏览和编辑远程文件，远程零安装。
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/savebees/ccbridge/releases) [![Platform](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://github.com/savebees/ccbridge) [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Shell](https://img.shields.io/badge/built%20with-Bash-89e051.svg)](https://github.com/savebees/ccbridge)
 
