@@ -2,8 +2,6 @@
 
 # CCBridge
 
----
-
 ### Claude Code 远程开发桥接器
 
 一条命令，将本地 Claude Code 连接到任意远程 Linux 服务器。<br>远程零安装，纯 SSH + SSHFS 方案。
@@ -15,8 +13,6 @@
 </div>
 
 ## 为什么需要 CCBridge？
-
----
 
 你想在远程服务器上使用 Claude Code，但是：
 
@@ -35,8 +31,6 @@
 
 ## 快速开始
 
----
-
 ### 前置条件
 
 - **macOS** + [macFUSE](https://github.com/osxfuse/osxfuse)
@@ -52,8 +46,6 @@ git clone https://github.com/savebees/ccbridge.git
 cd ccbridge
 ./install.sh
 ```
-
----
 
 ### 连接
 
@@ -141,6 +133,8 @@ ccbridge/
 
 ## 致谢
 
-- [osxfuse](https://github.com/osxfuse/osxfuse) 提供 macFUSE，macOS FUSE 实现。
-- [libfuse](https://github.com/libfuse/sshfs) 提供 SSHFS，基于 SSH 的文件系统客户端。
-- [sshpass](https://sourceforge.net/projects/sshpass/) 提供非交互式 SSH 密码认证。
+[osxfuse](https://github.com/osxfuse/osxfuse) 提供 macFUSE，macOS FUSE 实现。
+
+[libfuse](https://github.com/libfuse/sshfs) 提供 SSHFS，基于 SSH 的文件系统客户端。
+
+[sshpass](https://sourceforge.net/projects/sshpass/) 提供非交互式 SSH 密码认证。

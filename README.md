@@ -2,8 +2,6 @@
 
 # CCBridge
 
----
-
 ### Claude Code Remote Development Bridge
 
 One command to connect your local Claude Code to any remote Linux server.<br>Zero server-side installation. Pure SSH + SSHFS.
@@ -15,8 +13,6 @@ One command to connect your local Claude Code to any remote Linux server.<br>Zer
 </div>
 
 ## Why CCBridge?
-
----
 
 You want to use Claude Code on a remote server, but:
 
@@ -34,8 +30,6 @@ You want to use Claude Code on a remote server, but:
 No agents, no daemons, no server-side dependencies. Just SSH.
 
 ## Quick Start
-
----
 
 ### Prerequisites
 
@@ -139,5 +133,7 @@ ccbridge/
 ## Acknowledgments
 
 [osxfuse](https://github.com/osxfuse/osxfuse) for macFUSE, the macOS FUSE implementation.
+
 [libfuse](https://github.com/libfuse/sshfs) for SSHFS, the SSH filesystem client.
+
 [sshpass](https://sourceforge.net/projects/sshpass/) for non-interactive SSH password authentication.
