@@ -47,6 +47,8 @@ cd ccbridge
 ./install.sh
 ```
 
+After installation, the `ccbridge` command is available globally. You can run it from any terminal, no need to return to this repository.
+
 ### Connect
 
 ```bash

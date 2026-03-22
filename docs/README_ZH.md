@@ -47,6 +47,8 @@ cd ccbridge
 ./install.sh
 ```
 
+安装完成后，`ccbridge` 命令全局可用，在任意终端直接运行即可，无需再回到本仓库目录。
+
 ### 连接
 
 ```bash
