@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# CCBridge runtime
+*.log
+
+# Editor
+.vscode/
+.idea/
+
+# Test artifacts
+/tmp/

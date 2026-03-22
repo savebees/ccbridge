@@ -1,0 +1,451 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# CCBridge — Claude Code Remote Development Bridge
+# https://github.com/savebees/ccbridge
+
+VERSION="0.1.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source library modules
+source "${SCRIPT_DIR}/lib/config.sh"
+source "${SCRIPT_DIR}/lib/preflight.sh"
+source "${SCRIPT_DIR}/lib/mount.sh"
+source "${SCRIPT_DIR}/lib/probe.sh"
+source "${SCRIPT_DIR}/lib/rules.sh"
+
+# --- Globals set by parse_target / CLI args ---
+SSH_TARGET=""      # user@host
+SSH_HOST=""        # host
+SSH_USER=""        # user
+REMOTE_PATH=""     # /path/to/project
+SSH_PORT="22"
+SSH_KEY=""
+MOUNT_ONLY=false
+CUSTOM_MOUNT=""
+FORCE=false
+
+# -------------------------------------------------------------------
+# Argument parsing
+# -------------------------------------------------------------------
+
+usage() {
+    cat <<EOF
+CCBridge v${VERSION} — Claude Code Remote Development Bridge
+
+Usage:
+  ccbridge <user@host:/path> [options]     Connect to remote project
+  ccbridge down [server] [--force]         Unmount connections
+  ccbridge status                          Show active connections
+  ccbridge refresh [server]                Re-probe remote environment
+  ccbridge help                            Show this help
+
+Options:
+  -p, --port PORT          SSH port (default: 22)
+  -i, --identity FILE      SSH private key
+  -m, --mount PATH         Custom local mount point
+  --mount-only             Mount only, don't launch Claude Code
+  --force                  Force unmount
+  -v, --version            Show version
+  -h, --help               Show this help
+
+Examples:
+  ccbridge deploy@prod:/home/deploy/myapp
+  ccbridge myserver:/project -p 2222
+  ccbridge user@host:/project --mount-only
+  ccbridge down
+  ccbridge status
+EOF
+}
+
+parse_target() {
+    local target="$1"
+
+    # Format: [user@]host:/path
+    if [[ "$target" =~ ^([^:]+):(.+)$ ]]; then
+        local userhost="${BASH_REMATCH[1]}"
+        REMOTE_PATH="${BASH_REMATCH[2]}"
+
+        if [[ "$userhost" =~ ^(.+)@(.+)$ ]]; then
+            SSH_USER="${BASH_REMATCH[1]}"
+            SSH_HOST="${BASH_REMATCH[2]}"
+        else
+            SSH_HOST="$userhost"
+            SSH_USER="$(whoami)"
+        fi
+        SSH_TARGET="${SSH_USER}@${SSH_HOST}"
+    else
+        echo "❌ Invalid target format. Expected: [user@]host:/path"
+        echo "   Example: ccbridge deploy@server:/home/deploy/myapp"
+        exit 1
+    fi
+}
+
+# -------------------------------------------------------------------
+# Interactive mode (no arguments)
+# -------------------------------------------------------------------
+
+interactive_mode() {
+    echo ""
+    echo "  🔗 CCBridge — Connect to Remote Server"
+    echo ""
+
+    # SSH target
+    read -rp "  ? SSH target (e.g. user@host): " input_target
+    if [ -z "$input_target" ]; then
+        echo "  ❌ SSH target is required."
+        exit 1
+    fi
+
+    # Remote path
+    read -rp "  ? Remote project path: " input_path
+    if [ -z "$input_path" ]; then
+        echo "  ❌ Remote path is required."
+        exit 1
+    fi
+
+    # Port
+    read -rp "  ? SSH port [22]: " input_port
+    SSH_PORT="${input_port:-22}"
+
+    # SSH key
+    local default_key=""
+    for key_file in ~/.ssh/id_ed25519 ~/.ssh/id_rsa ~/.ssh/id_ecdsa; do
+        if [ -f "$key_file" ]; then
+            default_key="$key_file"
+            break
+        fi
+    done
+
+    if [ -n "$default_key" ]; then
+        read -rp "  ? SSH key [auto-detect: $default_key]: " input_key
+        SSH_KEY="${input_key:-$default_key}"
+    else
+        read -rp "  ? SSH key (leave blank for default): " input_key
+        SSH_KEY="$input_key"
+    fi
+
+    REMOTE_PATH="$input_path"
+    if [[ "$input_target" =~ ^(.+)@(.+)$ ]]; then
+        SSH_USER="${BASH_REMATCH[1]}"
+        SSH_HOST="${BASH_REMATCH[2]}"
+    else
+        SSH_HOST="$input_target"
+        SSH_USER="$(whoami)"
+    fi
+    SSH_TARGET="${SSH_USER}@${SSH_HOST}"
+
+    echo ""
+}
+
+# -------------------------------------------------------------------
+# Core commands
+# -------------------------------------------------------------------
+
+cmd_connect() {
+    echo ""
+    echo "🔗 CCBridge v${VERSION}"
+    echo "   Connecting to ${SSH_TARGET}:${REMOTE_PATH}"
+    echo ""
+
+    # Step 1: Preflight
+    echo "── Checking dependencies..."
+    run_preflight || exit 1
+    echo ""
+
+    # Step 2: Test SSH connection
+    echo "── Verifying SSH connection..."
+    local ssh_test_opts=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o BatchMode=yes -p "$SSH_PORT")
+    if [ -n "$SSH_KEY" ]; then
+        ssh_test_opts+=(-i "$SSH_KEY")
+    fi
+
+    local ssh_cmd=()
+    if [ -n "${SSH_PASS:-}" ] && command -v sshpass &>/dev/null; then
+        ssh_cmd=(sshpass -p "$SSH_PASS" ssh)
+    else
+        ssh_cmd=(ssh)
+    fi
+
+    # For password auth, don't use BatchMode
+    if [ -n "${SSH_PASS:-}" ]; then
+        ssh_test_opts=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT")
+        if [ -n "$SSH_KEY" ]; then
+            ssh_test_opts+=(-i "$SSH_KEY")
+        fi
+    fi
+
+    if ! "${ssh_cmd[@]}" "${ssh_test_opts[@]}" "$SSH_TARGET" "echo ok" &>/dev/null; then
+        echo "❌ Cannot connect to ${SSH_TARGET} on port ${SSH_PORT}"
+        echo "   Check your SSH credentials and network."
+        exit 1
+    fi
+    echo "✓ SSH connection verified"
+
+    # Step 3: SSHFS mount
+    echo ""
+    echo "── Mounting remote filesystem..."
+    local mountpoint
+    if [ -n "$CUSTOM_MOUNT" ]; then
+        mountpoint="$CUSTOM_MOUNT"
+    else
+        # Derive mount name from host and project dir
+        local project_name
+        project_name=$(basename "$REMOTE_PATH")
+        mountpoint="${MOUNT_BASE}/${SSH_HOST}/${project_name}"
+    fi
+
+    export SSH_PORT
+    mount_remote "${SSH_TARGET}:${REMOTE_PATH}" "$mountpoint" "$SSH_PORT" "$SSH_KEY" || exit 1
+
+    # Step 4: Probe remote environment
+    echo ""
+    echo "── Probing remote environment..."
+    local probe_result
+    probe_result=$(probe_remote "$SSH_TARGET" "$REMOTE_PATH" "$SSH_PORT" "$SSH_KEY" 2>/dev/null) || true
+
+    if [ -n "$probe_result" ]; then
+        echo "✓ Remote environment detected"
+    else
+        echo "⚠️  Probe returned no data (non-fatal, using defaults)"
+        probe_result=""
+    fi
+
+    # Step 5: Generate rules file
+    echo ""
+    echo "── Generating Claude Code rules..."
+    generate_rules "$mountpoint" "$SSH_TARGET" "$REMOTE_PATH" "$probe_result"
+
+    # Step 6: Save connection
+    save_connection "$SSH_TARGET" "$REMOTE_PATH" "$mountpoint" "$SSH_PORT" "$SSH_KEY"
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✅ CCBridge connected!"
+    echo ""
+    echo "   Remote:  ${SSH_TARGET}:${REMOTE_PATH}"
+    echo "   Mounted: ${mountpoint}"
+    echo "   Rules:   ${mountpoint}/.claude/rules/ccbridge-remote.md"
+    echo ""
+
+    if [ "$MOUNT_ONLY" = true ]; then
+        echo "   (--mount-only: Claude Code not launched)"
+        echo "   To start: cd ${mountpoint} && claude"
+        echo ""
+        return
+    fi
+
+    # Step 7: Launch Claude Code
+    if [ "$AUTO_LAUNCH_CLAUDE" = "true" ] && command -v claude &>/dev/null; then
+        echo "── Launching Claude Code..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        cd "$mountpoint"
+        exec claude
+    else
+        echo "   To start: cd ${mountpoint} && claude"
+        echo ""
+    fi
+}
+
+cmd_down() {
+    local target_filter="${1:-}"
+
+    echo ""
+    echo "🔗 CCBridge — Disconnecting..."
+    echo ""
+
+    local found=0
+    while IFS= read -r conn_file; do
+        [ -z "$conn_file" ] && continue
+
+        local mount_path ssh_t remote_p
+        mount_path=$(parse_json_field "$conn_file" "local_mount")
+        ssh_t=$(parse_json_field "$conn_file" "ssh_target")
+        remote_p=$(parse_json_field "$conn_file" "remote_path")
+
+        # Filter by server name if specified
+        if [ -n "$target_filter" ] && [[ "$ssh_t" != *"$target_filter"* ]] && [[ "$mount_path" != *"$target_filter"* ]]; then
+            continue
+        fi
+
+        found=1
+        echo "── Disconnecting ${ssh_t}:${remote_p}"
+
+        # Clean rules before unmount
+        if [ -d "$mount_path" ]; then
+            cleanup_rules "$mount_path"
+        fi
+
+        # Unmount
+        unmount_remote "$mount_path" "$( [ "$FORCE" = true ] && echo true || echo false )"
+
+        # Remove connection record
+        rm -f "$conn_file"
+
+        echo ""
+    done < <(list_connections)
+
+    if [ "$found" -eq 0 ]; then
+        echo "  No active connections found."
+        if [ -n "$target_filter" ]; then
+            echo "  (filtered by: $target_filter)"
+        fi
+    fi
+}
+
+cmd_status() {
+    echo ""
+    echo "🔗 CCBridge — Active Connections"
+    echo ""
+
+    local found=0
+    while IFS= read -r conn_file; do
+        [ -z "$conn_file" ] && continue
+        found=1
+
+        local mount_path ssh_t remote_p port connected_at
+        mount_path=$(parse_json_field "$conn_file" "local_mount")
+        ssh_t=$(parse_json_field "$conn_file" "ssh_target")
+        remote_p=$(parse_json_field "$conn_file" "remote_path")
+        port=$(parse_json_field "$conn_file" "ssh_port")
+        connected_at=$(parse_json_field "$conn_file" "connected_at")
+
+        # Check mount health
+        local status_icon health_rc=0
+        check_mount_health "$mount_path" || health_rc=$?
+        if [ "$health_rc" -eq 0 ]; then
+            status_icon="🟢"
+        elif [ "$health_rc" -eq 2 ]; then
+            status_icon="🔴 (stale)"
+        else
+            status_icon="⚪ (not mounted)"
+        fi
+
+        echo "  ${status_icon} ${ssh_t}:${remote_p}"
+        echo "     Mount: ${mount_path}"
+        echo "     Port:  ${port}"
+        echo "     Since: ${connected_at}"
+        echo ""
+    done < <(list_connections)
+
+    if [ "$found" -eq 0 ]; then
+        echo "  No active connections."
+        echo ""
+        echo "  Connect with: ccbridge user@host:/path"
+    fi
+    echo ""
+}
+
+cmd_refresh() {
+    local target_filter="${1:-}"
+
+    echo ""
+    echo "🔗 CCBridge — Refreshing environment..."
+    echo ""
+
+    local found=0
+    while IFS= read -r conn_file; do
+        [ -z "$conn_file" ] && continue
+
+        local mount_path ssh_t remote_p port key
+        mount_path=$(parse_json_field "$conn_file" "local_mount")
+        ssh_t=$(parse_json_field "$conn_file" "ssh_target")
+        remote_p=$(parse_json_field "$conn_file" "remote_path")
+        port=$(parse_json_field "$conn_file" "ssh_port")
+        key=$(parse_json_field "$conn_file" "ssh_key")
+
+        if [ -n "$target_filter" ] && [[ "$ssh_t" != *"$target_filter"* ]]; then
+            continue
+        fi
+
+        found=1
+        echo "── Re-probing ${ssh_t}:${remote_p}..."
+
+        local probe_result
+        probe_result=$(probe_remote "$ssh_t" "$remote_p" "$port" "$key" 2>/dev/null) || true
+
+        if [ -n "$probe_result" ]; then
+            SSH_PORT="$port"
+            generate_rules "$mount_path" "$ssh_t" "$remote_p" "$probe_result"
+        else
+            echo "⚠️  Probe failed for ${ssh_t}"
+        fi
+        echo ""
+    done < <(list_connections)
+
+    if [ "$found" -eq 0 ]; then
+        echo "  No active connections to refresh."
+    fi
+}
+
+# -------------------------------------------------------------------
+# Main entry point
+# -------------------------------------------------------------------
+
+main() {
+    load_config
+
+    # No arguments → interactive mode
+    if [ $# -eq 0 ]; then
+        interactive_mode
+        cmd_connect
+        return
+    fi
+
+    # Parse first argument as subcommand or target
+    local cmd="$1"
+    shift
+
+    case "$cmd" in
+        help|-h|--help)
+            usage
+            exit 0
+            ;;
+        -v|--version)
+            echo "CCBridge v${VERSION}"
+            exit 0
+            ;;
+        down)
+            # Parse down-specific options
+            local down_target=""
+            while [ $# -gt 0 ]; do
+                case "$1" in
+                    --force)  FORCE=true; shift ;;
+                    *)        down_target="$1"; shift ;;
+                esac
+            done
+            cmd_down "$down_target"
+            ;;
+        status)
+            cmd_status
+            ;;
+        refresh)
+            cmd_refresh "${1:-}"
+            ;;
+        *)
+            # Treat as connection target
+            parse_target "$cmd"
+
+            # Parse remaining options
+            while [ $# -gt 0 ]; do
+                case "$1" in
+                    -p|--port)       SSH_PORT="$2"; shift 2 ;;
+                    -i|--identity)   SSH_KEY="$2"; shift 2 ;;
+                    -m|--mount)      CUSTOM_MOUNT="$2"; shift 2 ;;
+                    --mount-only)    MOUNT_ONLY=true; shift ;;
+                    --force)         FORCE=true; shift ;;
+                    *)
+                        echo "Unknown option: $1"
+                        usage
+                        exit 1
+                        ;;
+                esac
+            done
+
+            cmd_connect
+            ;;
+    esac
+}
+
+main "$@"
